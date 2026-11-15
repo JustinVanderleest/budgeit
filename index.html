@@ -324,7 +324,9 @@ nav button.on{color:var(--accent);font-weight:600}
 
   <div class="card">
     <h2>Lever 3 · Sell assets</h2>
-    <div class="row"><input id="aName" placeholder="Asset (e.g. old trailer)"><input id="aVal" type="number" inputmode="decimal" placeholder="Value" style="max-width:110px"><button class="fit" onclick="App.addAsset()">Add</button></div>
+    <div class="sub">Equity = what it's worth minus what you still owe on it. Selling it puts the equity toward your goals.</div>
+    <div class="row" style="margin-top:8px"><input id="aName" placeholder="Asset (e.g. 2024 Ram 3500)"></div>
+    <div class="fx3" style="grid-template-columns:1fr 1fr auto;align-items:end"><div><label>Worth</label><input id="aVal" type="number" inputmode="decimal" placeholder="$"></div><div><label>Owing on it</label><input id="aOwe" type="number" inputmode="decimal" placeholder="$0"></div><button class="primary" onclick="App.addAsset()">Add</button></div>
     <div id="assetList" style="margin-top:8px"></div>
   </div>
 
@@ -489,10 +491,14 @@ const extraMonthly=()=>S.shifts.filter(s=>!s.regular&&S.plan.shifts.includes(s.i
 function cutsMonthly(){
   let t=0;
   for(const c in S.plan.cuts){if(S.categories.includes(c))t+=catBasis(c)*num(S.plan.cuts[c])/100;}
-  for(const id in S.plan.fixedCuts){const f=activeRec().find(x=>x.id===id);const v=S.plan.fixedCuts[id];if(f&&v!==''&&v!=null)t+=Math.max(0,fixedMonthly(f)-num(v)*(FREQ[f.freq]||1));}
+  const sp_=soldPayIds();
+  for(const id in S.plan.fixedCuts){if(sp_.has(id))continue;const f=activeRec().find(x=>x.id===id);const v=S.plan.fixedCuts[id];if(f&&v!==''&&v!=null)t+=Math.max(0,fixedMonthly(f)-num(v)*(FREQ[f.freq]||1));}
   return t;
 }
-const lumpSum=()=>S.assets.filter(a=>S.plan.sell.includes(a.id)).reduce((a,x)=>a+num(x.value),0);
+const equity=a=>num(a.value)-num(a.owing);
+const lumpSum=()=>S.assets.filter(a=>S.plan.sell.includes(a.id)).reduce((s,x)=>s+equity(x),0);
+const soldPayIds=()=>new Set(S.assets.filter(a=>S.plan.sell.includes(a.id)&&a.payRid).map(a=>a.payRid));
+const soldPayMonthly=()=>{const ids=soldPayIds();return activeRec().filter(r=>ids.has(r.id)).reduce((s,r)=>s+fixedMonthly(r),0);};
 const monthsUntil=ds=>(parse(ds)-today())/864e5/30.44;
 
 function plannedStatus(){ // walk planned expenses in date order against savings + surplus
@@ -507,7 +513,7 @@ function plannedStatus(){ // walk planned expenses in date order against savings
 }
 function goalTimeline(withPlan){
   const goals=S.planned.filter(p=>p.goal).sort((a,b)=>a.date.localeCompare(b.date));
-  const C=surplus()+(withPlan?extraMonthly()+cutsMonthly():0);
+  const C=surplus()+(withPlan?extraMonthly()+cutsMonthly()+soldPayMonthly():0);
   let L=withPlan?lumpSum():0,t=0;const out={};
   goals.forEach(g=>{
     let rem=Math.max(0,num(g.amount)-num(g.saved));
@@ -599,10 +605,10 @@ function buildReport(){
   const ar=activeRec().filter(r=>num(r.amount)>0&&(typ==='all'||(r.type||'personal')===typ));
   if(ar.length){sec('Recurring expenses (current)');
     ar.forEach(r=>{D.need(14);D.text(D.fit(r.biz,200),M);D.text(FREQ_LBL[r.freq],M+250,9.5);D.text(m2(num(r.amount)),R-90,9.5,{right:1});D.text(m2(fixedMonthly(r))+'/mo',R,9.5,{right:1});D.down(14);});}
-  if(typ!=='business'&&(S.assets.length||S.debts.length)){sec('Assets & debts (current)');
-    S.assets.forEach(x=>kv(x.name,m2(num(x.value))));
+  if(typ!=='business'&&(S.assets.length||S.debts.length)){sec('Asset equity & debts (current)');
+    S.assets.forEach(x=>kv(x.name+(num(x.owing)?' (worth '+m2(num(x.value))+', owing '+m2(num(x.owing))+')':''),m2(equity(x))));
     S.debts.forEach(d=>kv(d.name+' ('+num(d.apr)+'% interest, min '+m2(num(d.minPay))+'/mo)','-'+m2(num(d.balance))));
-    const nw=S.assets.reduce((s,x)=>s+num(x.value),0)-S.debts.reduce((s,x)=>s+num(x.balance),0);kv('Net worth',m2(nw),1);}
+    const nw=S.assets.reduce((s,x)=>s+equity(x),0)-S.debts.reduce((s,x)=>s+num(x.balance),0);kv('Net worth',m2(nw),1);}
   D.need(40);D.down(16);D.text('Income is projected from the work schedule and vacation days entered in Budgeit, not from pay records.',M,8.5,{gray:1});
   return {bytes:D.bytes(),name:'Budgeit report '+A+' to '+B+(typ==='all'?'':' ('+typ+')')+'.pdf'};
 }
@@ -629,7 +635,8 @@ function sample(){
   for(let i=0;i<260;i++){const b=B[Math.floor(rnd()*B.length)];s.txns.push({id:'t'+i,date:iso(addDays(t,-Math.floor(rnd()*365))),amount:Math.round((b[4]+rnd()*(b[5]-b[4]))*100)/100,biz:b[0],cat:b[1],ess:b[2],type:b[3]});}
   s.txns.sort((a,b)=>a.date.localeCompare(b.date));
   s.planned=[{id:'p1',name:'Mexico trip',amount:6500,date:iso(addDays(t,75)),goal:true,saved:500},{id:'p2',name:'New saddle',amount:2500,date:iso(addDays(t,200)),goal:false,saved:''},{id:'p3',name:'Truck tires',amount:1400,date:iso(addDays(t,30)),goal:false,saved:''}];
-  s.assets=[{id:'a1',name:'Old utility trailer',value:3000},{id:'a2',name:'Spare rifle',value:900}];
+  s.assets=[{id:'a3',name:'2024 Ram 3500',value:95000,owing:67000,payRid:'f6'},{id:'a1',name:'Old utility trailer',value:3000,owing:0},{id:'a2',name:'Spare rifle',value:900,owing:0}];
+  s.recurring.push({id:'f6',biz:'Ram truck loan',amount:1150,freq:'monthly',start:iso(addDays(t,-160)),cat:'Debt payments',ess:3,type:'personal'});
   s.plan={shifts:['x1'],cuts:{'Eating out':50},fixedCuts:{f2:60},sell:[]};
   return s;
 }
@@ -873,25 +880,29 @@ function renderGoals(){
   const ar=activeRec().filter(r=>num(r.amount)>0&&!r.debt);$('#fixedCuts').innerHTML=ar.length?'<div class="sub" style="margin-bottom:4px">Lower a recurring bill (enter the new amount)</div>'+ar.map(f=>{const v=S.plan.fixedCuts[f.id];return `<div class="row" style="margin-top:6px"><span>${esc(f.biz||'Unnamed')}<br><span class="muted" style="font-size:12px">now ${money(num(f.amount),2)} ${FREQ_LBL[f.freq].toLowerCase()}</span></span>
      <input class="fit" data-k="fc-${f.id}" type="number" inputmode="decimal" style="width:110px" placeholder="new $" value="${v==null?'':v}" onchange="App.setFixedCut('${f.id}',this.value)"></div>`;}).join(''):'';
 
-  $('#assetList').innerHTML=S.assets.length?S.assets.map(a=>`<label class="check"><input type="checkbox" ${S.plan.sell.includes(a.id)?'checked':''} onchange="App.planTog('sell','${a.id}',this.checked)"><span class="main">${esc(a.name)}<br><span class="sub">Sell toward goals</span></span><span class="amt">${money(num(a.value))}</span><button class="ghost" style="font-size:13px" onclick="event.preventDefault();App.editAsset('${a.id}')">Edit</button></label>`).join('')+
-     `<div class="kv total"><span>Total assets</span><span>${money(S.assets.reduce((a,x)=>a+num(x.value),0))}</span></div>`:'<div class="empty">List things you own that could be sold: vehicles, equipment, collectibles…</div>';
-  const totA=S.assets.reduce((a,x)=>a+num(x.value),0),totD=S.debts.reduce((a,x)=>a+num(x.balance),0);
+  const tV=S.assets.reduce((s,x)=>s+num(x.value),0),tO=S.assets.reduce((s,x)=>s+num(x.owing),0);
+  $('#assetList').innerHTML=S.assets.length?S.assets.map(a=>{const pr=a.payRid&&S.recurring.find(r=>r.id===a.payRid),e=equity(a);return `<label class="check"><input type="checkbox" ${S.plan.sell.includes(a.id)?'checked':''} onchange="App.planTog('sell','${a.id}',this.checked)"><span class="main">${esc(a.name)}<br>
+     <span class="sub">Worth ${money(num(a.value))}${num(a.owing)?` · owe ${money(num(a.owing))}`:' · paid off'}${pr?` · ${money(fixedMonthly(pr))}/mo payment`:''}</span><br><span class="sub">Sell toward goals</span></span>
+     <span class="amt"><span class="${e<0?'neg':''}">${money(e)}</span><div class="sub" style="font-weight:400">equity</div></span><button class="ghost" style="font-size:13px" onclick="event.preventDefault();App.editAsset('${a.id}')">Edit</button></label>`;}).join('')+
+     `<div class="kv total"><span>Total worth</span><span>${money(tV)}</span></div>${tO?`<div class="kv"><span>Owing on assets</span><span>−${money(tO)}</span></div><div class="kv"><span>Total equity</span><span class="${tV-tO<0?'neg':''}">${money(tV-tO)}</span></div>`:''}`:'<div class="empty">List things you own that could be sold: vehicles, equipment, collectibles…</div>';
+  const totA=S.assets.reduce((a,x)=>a+equity(x),0),totD=S.debts.reduce((a,x)=>a+num(x.balance),0);
   $('#debtList').innerHTML=(S.debts.length?S.debts.map(d=>{const po=payoff(d),r=num(d.apr)/1200;return `<div class="rec">
      <div class="gh" style="display:flex;justify-content:space-between;align-items:center"><b>${esc(d.name)}</b><span><button class="tog" onclick="App.debtGoal('${d.id}')">⚑ Payoff goal</button><button class="ghost" style="font-size:13px" onclick="App.editDebt('${d.id}')">Edit</button></span></div>
      <div class="fx3"><div><label>Balance</label><input data-k="db-${d.id}" type="number" inputmode="decimal" value="${d.balance}" onchange="App.setDebt('${d.id}','balance',this.value)"></div>
      <div><label>Interest %</label><input data-k="da-${d.id}" type="number" inputmode="decimal" step="0.01" value="${d.apr}" onchange="App.setDebt('${d.id}','apr',this.value)"></div>
      <div><label>Min. / mo</label><input data-k="dm-${d.id}" type="number" inputmode="decimal" value="${d.minPay}" onchange="App.setDebt('${d.id}','minPay',this.value)"></div></div>
      <div class="sub" style="margin-top:4px">${(()=>{const rr=S.recurring.find(x=>x.id===d.rid);return rr?'Payment due '+nextDate(rr)+' · ':'';})()}Interest ≈ ${money(num(d.balance)*r)}/mo · ${isFinite(po.n)?(po.n===0?'Paid off':`at minimum, paid off in <b>${Math.ceil(po.n)} mo</b> (${mlabel(addDays(today(),Math.round(po.n*30.44)))}), ${money(po.int)} interest`):'<span class="neg">minimum payment doesn’t cover the interest</span>'}</div></div>`;}).join(''):'<div class="empty">No debts entered.</div>')+
-     `<div class="kv total"><span>Total debt</span><span>${money(totD)}</span></div><div class="kv"><span>Net worth (assets − debts)</span><span class="${totA-totD<0?'neg':''}">${money(totA-totD)}</span></div>`;
+     `<div class="kv total"><span>Total debt</span><span>${money(totD)}</span></div><div class="kv"><span>Net worth (asset equity − debts)</span><span class="${totA-totD<0?'neg':''}">${money(totA-totD)}</span></div>`;
 
-  const base=goalTimeline(false),plan=goalTimeline(true),sp=surplus(),ex2=extraMonthly(),cu=cutsMonthly(),ls=lumpSum();
+  const base=goalTimeline(false),plan=goalTimeline(true),sp=surplus(),ex2=extraMonthly(),cu=cutsMonthly(),ls=lumpSum(),lp=soldPayMonthly();
   const lastB=base.goals.length?base.out[base.goals[base.goals.length-1].id]:0,lastP=plan.goals.length?plan.out[plan.goals[plan.goals.length-1].id]:0;
   $('#goalsResult').innerHTML=`<div class="sub">Toward goals each month</div><div class="hero ${plan.C<=0?'neg':''}">${money(plan.C)}<span class="sub" style="font-size:14px;font-weight:400"> /mo</span></div>
     <div class="kv"><span>Normal surplus</span><span class="${sp<0?'neg':''}">${money(sp)}</span></div>
     <div class="kv"><span>+ Extra shifts (net)</span><span>${money(ex2)}</span></div>
     <div class="kv"><span>+ Spending cuts</span><span>${money(cu)}</span></div>
-    ${ls?`<div class="kv"><span>One-time asset sales</span><span>${money(ls)}</span></div>`:''}
-    ${base.goals.length?`<div class="kv total"><span>All goals done</span><span>${whenText(lastP)}</span></div>${(ex2||cu||ls)&&isFinite(lastB)?`<div class="sub">Without the plan: ${whenText(lastB)}</div>`:''}`:''}
+    ${lp?`<div class="kv"><span>+ Loan payments ended by selling</span><span>${money(lp)}</span></div>`:''}
+    ${S.plan.sell.length?`<div class="kv"><span>One-time equity from sales</span><span class="${ls<0?'neg':''}">${money(ls)}</span></div>`:''}
+    ${base.goals.length?`<div class="kv total"><span>All goals done</span><span>${whenText(lastP)}</span></div>${(ex2||cu||ls||lp)&&isFinite(lastB)?`<div class="sub">Without the plan: ${whenText(lastB)}</div>`:''}`:''}
     <div style="margin-top:8px">${base.goals.map(g=>goalHtml(g,base.out[g.id],plan.out[g.id],true)).join('')||'<div class="empty">Flag a planned expense to make it a goal.</div>'}</div>
     ${base.goals.length>1?'<div class="sub" style="margin-top:6px">Goals are paid off one at a time, in due-date order.</div>':''}`;
 }
@@ -979,8 +990,10 @@ const ED={
       v=>{p.name=v.name.trim();p.amount=num(v.amount);p.date=v.date;p.goal=v.goal==='1';p.saved=v.saved===''?'':num(v.saved);},
       `<button style="color:var(--bad)" onclick="App.closeSheet();App.del('planned','${id}')">Delete</button>`);},
   editAsset(id){if(isViewer())return;const a=S.assets.find(x=>x.id===id);if(!a)return;
-    formSheet('Edit asset',[{k:'name',l:'Name',v:a.name,req:1},{k:'value',l:'Value',t:'num',v:a.value,pos:1}],
-      v=>{a.name=v.name.trim();a.value=num(v.value);},`<button style="color:var(--bad)" onclick="App.closeSheet();App.del('assets','${id}')">Delete</button>`);},
+    formSheet('Edit asset',[{k:'name',l:'Name',v:a.name,req:1},{k:'value',l:'What it’s worth',t:'num',v:a.value,pos:1},{k:'owing',l:'Still owing on it',t:'num',v:a.owing||''},
+      {k:'payRid',l:'Its loan payment',t:'sel',o:[['','None / not listed']].concat(activeRec().filter(r=>num(r.amount)>0).map(r=>[r.id,`${r.biz} · ${money(num(r.amount),2)} ${FREQ_LBL[r.freq].toLowerCase()}`])),v:a.payRid||'',
+       note:'Pick the matching bill from your recurring expenses. If you plan to sell this asset, the goal planner counts that payment as money freed up each month.'}],
+      v=>{a.name=v.name.trim();a.value=num(v.value);a.owing=v.owing===''?0:num(v.owing);a.payRid=v.payRid||null;},`<button style="color:var(--bad)" onclick="App.closeSheet();App.del('assets','${id}')">Delete</button>`);},
   editDebt(id){if(isViewer())return;const d=S.debts.find(x=>x.id===id);if(!d)return;const r=S.recurring.find(x=>x.id===d.rid);
     formSheet('Edit debt',[{k:'name',l:'Name',v:d.name,req:1},{k:'balance',l:'Balance owed',t:'num',v:d.balance},{k:'apr',l:'Interest % per year',t:'num',v:d.apr},
       {k:'minPay',l:'Minimum payment per month',t:'num',v:d.minPay},{k:'due',l:'Payment due date',t:'date',v:r?r.start:iso(today()),note:'Changing the due date re-creates this debt’s logged payments.'}],
@@ -1106,7 +1119,7 @@ const App={
   planTog(k,id,on){S.plan[k]=S.plan[k].filter(x=>x!==id);if(on)S.plan[k].push(id);save();rerender();},
   setCut(c,v){if(+v)S.plan.cuts[c]=+v;else delete S.plan.cuts[c];save();rerender();},
   setFixedCut(id,v){if(v==='')delete S.plan.fixedCuts[id];else S.plan.fixedCuts[id]=num(v);save();rerender();},
-  addAsset(){const n=$('#aName').value.trim(),v=num($('#aVal').value);if(!n)return flag($('#aName'));if(!(v>0))return flag($('#aVal'));S.assets.push({id:uid(),name:n,value:v});$('#aName').value=$('#aVal').value='';save();renderAll();},
+  addAsset(){const n=$('#aName').value.trim(),v=num($('#aVal').value),o=num($('#aOwe').value);if(!n)return flag($('#aName'));if(!(v>0))return flag($('#aVal'));const a={id:uid(),name:n,value:v,owing:o,payRid:null};S.assets.push(a);$('#aName').value=$('#aVal').value=$('#aOwe').value='';save();if(o>0)setTimeout(()=>App.editAsset(a.id),50);renderAll();},
   month(d){LM=new Date(LM.getFullYear(),LM.getMonth()+d,1);renderLog();},
   editTxn,saveTxn,closeSheet,
   delTxn(id){closeSheet();ask('Delete this purchase?').then(ok=>{if(!ok)return;const t=S.txns.find(x=>x.id===id),r=t&&t.rid&&S.recurring.find(x=>x.id===t.rid);if(r){r.skip=(r.skip||[]).concat(t.date);}S.txns=S.txns.filter(x=>x.id!==id);save();renderAll();});},
