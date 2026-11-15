@@ -47,7 +47,18 @@ body.viewer main input:disabled,body.viewer main select:disabled{opacity:1;color
 body.viewer main button:disabled{opacity:.45}
 #viewBanner{display:none;background:var(--accent-soft);color:var(--accent);font-size:13px;padding:8px 12px;border-radius:10px;margin-bottom:12px}
 body.viewer #viewBanner{display:block}
-.tap{cursor:pointer}.chev{color:var(--ink3);font-size:20px;padding-left:2px}
+.tap{cursor:pointer}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal .dh{font-size:11px;color:var(--ink3);text-align:center;padding-bottom:2px}
+.cal button{padding:5px 0 4px;border-radius:8px;display:flex;flex-direction:column;align-items:center;gap:1px;min-height:46px;font-size:14px;position:relative}
+.cal button small{font-size:10px;color:var(--ink2);font-variant-numeric:tabular-nums}
+.cal button.off{background:var(--warn-soft);border-color:transparent}.cal button.off small{color:var(--warn)}
+.cal button.mod{border-color:var(--accent);background:var(--accent-soft)}.cal button.mod small{color:var(--accent);font-weight:600}
+.cal button.today{box-shadow:inset 0 0 0 2px var(--ink)}
+.cal button.blank{visibility:hidden}
+.cal button.past{opacity:.6}
+.dshift{display:grid;grid-template-columns:1fr 64px 76px auto;gap:6px;align-items:center;margin-top:6px}
+.dshift input{padding:7px 8px}.chev{color:var(--ink3);font-size:20px;padding-left:2px}
 .urow{display:flex;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--line)}
 .urow:first-child{border-top:none}
 .urow .main{flex:1;min-width:0}
@@ -234,16 +245,18 @@ nav button.on{color:var(--accent);font-weight:600}
 <!-- ================= BUDGET ================= -->
 <section class="tab" id="t-budget">
   <div class="card">
-    <h2>Work schedule <small>regular week</small></h2>
+    <h2>Work calendar <small>tap a day to change it</small></h2>
+    <div class="mnav" data-ro><button onclick="App.calMonth(-1)">‹</button><b id="calMonth"></b><button onclick="App.calMonth(1)">›</button></div>
+    <div class="cal" id="cal"></div>
+    <div class="sub" id="calSum" style="margin-top:8px"></div>
+    <div class="sub" style="margin-top:4px;line-height:1.6"><span style="white-space:nowrap"><i class="dot" style="background:var(--accent-soft);border:1px solid var(--accent)"></i>changed</span> &nbsp;<span style="white-space:nowrap"><i class="dot" style="background:var(--warn-soft);border:1px solid var(--warn)"></i>vacation / off</span> &nbsp;Other days follow your regular week.</div>
+  </div>
+  <div class="card">
+    <h2>Regular work week <small>default schedule</small></h2>
     <div class="sub" style="margin-bottom:6px">Add every shift you <i>could</i> work. Mark your normal ones <b>Regular</b>; the rest are <b>Extra</b> shifts you can switch on in the goal planner. Paid per shift rather than hourly? Set hours to 1.</div>
     <div id="schedule"></div>
   </div>
 
-  <div class="card">
-    <h2>Vacation days</h2>
-    <div class="row"><input type="date" id="vacDate"><button class="fit" onclick="App.addVac()">Add</button></div>
-    <div class="chips" id="vacList"></div>
-  </div>
 
   <div class="card">
     <h2>Income</h2>
@@ -349,7 +362,7 @@ const FREQ_LBL={weekly:'Weekly',biweekly:'Every 2 weeks',semimonthly:'Twice a mo
 const freqOpts=v=>Object.keys(FREQ).map(k=>`<option value="${k}" ${v===k?'selected':''}>${FREQ_LBL[k]}</option>`).join('');
 const DEFAULT_CATS=['Groceries','Eating out','Coffee & snacks','Fuel','Vehicle','Household','Clothing','Health','Pets','Entertainment','Gifts','Travel','Business supplies','Bills','Housing','Utilities','Phone & internet','Insurance','Subscriptions','Debt payments','Other'];
 
-const fresh=()=>({settings:{tax:25,savings:0},shifts:[],vacation:[],recurring:[],debts:[],budgets:{},categories:DEFAULT_CATS.slice(),txns:[],planned:[],assets:[],plan:{shifts:[],cuts:{},fixedCuts:{},sell:[]}});
+const fresh=()=>({settings:{tax:25,savings:0},shifts:[],vacation:[],days:{},recurring:[],debts:[],budgets:{},categories:DEFAULT_CATS.slice(),txns:[],planned:[],assets:[],plan:{shifts:[],cuts:{},fixedCuts:{},sell:[]}});
 let S;
 try{S=JSON.parse(localStorage.getItem(KEY))||fresh();}catch(e){S=fresh();}
 S=Object.assign(fresh(),S); S.plan=Object.assign(fresh().plan,S.plan||{}); S.settings=Object.assign(fresh().settings,S.settings||{});
@@ -418,12 +431,16 @@ const netRate=()=>1-num(S.settings.tax)/100;
 const shiftPay=s=>num(s.hours)*num(s.rate);
 const regDayGross=wd=>S.shifts.filter(s=>s.regular&&s.day===wd).reduce((a,s)=>a+shiftPay(s),0);
 const vacSet=()=>new Set(S.vacation);
-function dayGross(ds,vs){vs=vs||vacSet();if(vs.has(ds))return 0;return regDayGross(parse(ds).getDay());}
+const dayShifts=ds=>S.days&&S.days[ds]?S.days[ds].shifts:S.shifts.filter(s=>s.regular&&s.day===parse(ds).getDay());
+function dayGross(ds,vs){vs=vs||vacSet();if(vs.has(ds))return 0;if(S.days&&S.days[ds])return S.days[ds].shifts.reduce((a,x)=>a+shiftPay(x),0);return regDayGross(parse(ds).getDay());}
+const dayHours=ds=>vacSet().has(ds)?0:dayShifts(ds).reduce((a,x)=>a+num(x.hours),0);
 const weeklyGross=()=>S.shifts.filter(s=>s.regular).reduce((a,s)=>a+shiftPay(s),0);
 function monthGross(y,m){const vs=vacSet();let t=0;const n=new Date(y,m+1,0).getDate();for(let d=1;d<=n;d++)t+=dayGross(iso(new Date(y,m,d)),vs);return t;}
 function avgMonthlyGross(){ // regular week ×52, less vacation days booked in the next 12 months
   const t=today(),end=addDays(t,365);let lost=0;
+  const vs=vacSet();
   S.vacation.forEach(v=>{const d=parse(v);if(d>=t&&d<end)lost+=regDayGross(d.getDay());});
+  for(const k in (S.days||{})){const d=parse(k);if(d>=t&&d<end&&!vs.has(k))lost+=regDayGross(d.getDay())-dayGross(k,vs);}
   return (weeklyGross()*52-lost)/12;
 }
 const fixedMonthly=f=>num(f.amount)*(FREQ[f.freq]||1);
@@ -807,8 +824,7 @@ function renderBudget(){
       <button class="x" onclick="App.del('shifts','${s.id}')">×</button></div>`).join('')}</div>`;
   });
   $('#schedule').innerHTML=h+'<div class="sub" style="margin-top:4px">Columns: name · hours · $/hour</div>';
-  const t=today(),vs=S.vacation.filter(v=>v>=iso(addDays(t,-31))).sort();
-  $('#vacList').innerHTML=vs.length?vs.map(v=>`<span class="chip">${DAYS[parse(v).getDay()]} ${dshort(parse(v))}<button class="x" onclick="App.delVac('${v}')">×</button></span>`).join(''):'<span class="empty">No vacation days booked.</span>';
+  const t=today();renderCal();
   const wg=weeklyGross(),ag=avgMonthlyGross(),nr=netRate(),mg=monthGross(t.getFullYear(),t.getMonth());
   $('#incomeSum').innerHTML=`<div class="kv"><span>Regular week, gross</span><span>${money(wg)}</span></div>
    <div class="kv"><span>${MON[t.getMonth()]} gross (calendar, less vacation)</span><span>${money(mg)}</span></div>
@@ -879,6 +895,47 @@ function renderGoals(){
     <div style="margin-top:8px">${base.goals.map(g=>goalHtml(g,base.out[g.id],plan.out[g.id],true)).join('')||'<div class="empty">Flag a planned expense to make it a goal.</div>'}</div>
     ${base.goals.length>1?'<div class="sub" style="margin-top:6px">Goals are paid off one at a time, in due-date order.</div>':''}`;
 }
+
+/* ---------- work calendar ---------- */
+let CM=new Date(today().getFullYear(),today().getMonth(),1);
+function renderCal(){
+  const y=CM.getFullYear(),m=CM.getMonth(),n=new Date(y,m+1,0).getDate(),lead=(new Date(y,m,1).getDay()+6)%7,vs=vacSet(),td=iso(today());
+  $('#calMonth').textContent=mlabel(CM);
+  let h=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<div class="dh">${d}</div>`).join('')+'<button class="blank"></button>'.repeat(lead);
+  let hrs=0,ch=0,off=0;
+  for(let d=1;d<=n;d++){const ds=iso(new Date(y,m,d)),v=vs.has(ds),mod=!!(S.days&&S.days[ds]),hh=v?0:dayShifts(ds).reduce((a,x)=>a+num(x.hours),0);
+    hrs+=hh;if(mod)ch++;if(v)off++;
+    h+=`<button class="${v?'off':mod?'mod':''}${ds===td?' today':''}${ds<td?' past':''}" onclick="App.editDay('${ds}')">${d}<small>${v?'off':hh?(+hh.toFixed(2))+'h':'·'}</small></button>`;}
+  $('#cal').innerHTML=h;
+  const g=monthGross(y,m);
+  $('#calSum').innerHTML=`${MON[m]}: <b>${+hrs.toFixed(2)} h</b> · ${money(g)} gross · ${money(g*netRate())} net${ch?` · ${ch} changed day${ch>1?'s':''}`:''}${off?` · ${off} off`:''}`;
+}
+function dayRow(x){return `<div class="dshift"><input class="dn" value="${esc(x.name||'')}" placeholder="Shift"><input class="dh" type="number" inputmode="decimal" step="0.25" value="${x.hours}" placeholder="hrs"><input class="dr" type="number" inputmode="decimal" step="0.01" value="${x.rate}" placeholder="$/hr"><button class="x" onclick="this.parentNode.remove()">×</button></div>`;}
+const CAL={
+  calMonth(d){CM=new Date(CM.getFullYear(),CM.getMonth()+d,1);renderCal();lockUI();},
+  editDay(ds){if(isViewer())return;
+    const dt=parse(ds),v=vacSet().has(ds),mod=!!(S.days&&S.days[ds]),sh=dayShifts(ds).map(x=>({name:x.name,hours:x.hours,rate:x.rate}));
+    const reg=S.shifts.filter(s=>s.regular&&s.day===dt.getDay());
+    sheet(`<h2 style="margin:0 0 2px;font-size:17px;display:flex;justify-content:space-between;align-items:center">${DAYS_FULL[dt.getDay()]}, ${dshort(dt)}<button class="x" onclick="App.closeSheet()">×</button></h2>
+      <div class="sub">${mod?'Changed from your regular schedule.':reg.length?'Regular schedule: '+reg.map(r=>`${esc(r.name||'Shift')} ${r.hours}h`).join(', '):'Not a regular work day.'}</div>
+      <div class="seg" id="dOff" style="margin-top:10px"><button type="button" data-v="0" class="${v?'':'on'}">Working</button><button type="button" data-v="1" class="${v?'on':''}">Vacation / off</button></div>
+      <div id="dWork" style="${v?'display:none':''}"><div class="sub" style="margin-top:10px">Name · hours · $/hour</div><div id="dRows">${sh.map(dayRow).join('')}</div>
+      <button class="ghost" style="margin-top:6px;color:var(--accent);font-weight:600" onclick="App.dayAdd()">+ Add shift</button></div>
+      <div class="row" style="margin-top:14px">${mod?'<button onclick="App.dayReset(\''+ds+'\')">Back to regular</button>':''}<button class="primary" onclick="App.daySave('${ds}')">Save</button></div>`);
+    $('#dOff').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;setSeg('#dOff',b.dataset.v);$('#dWork').style.display=b.dataset.v==='1'?'none':'';});
+  },
+  dayAdd(){const last=[...document.querySelectorAll('#dRows .dr')].pop(),reg=S.shifts.find(s=>s.regular);
+    $('#dRows').insertAdjacentHTML('beforeend',dayRow({name:'Extra',hours:'',rate:last?last.value:(reg?reg.rate:'')}));const h=[...document.querySelectorAll('#dRows .dh')].pop();h&&h.focus();},
+  daySave(ds){
+    const off=$('#dOff .on').dataset.v==='1';
+    S.vacation=S.vacation.filter(x=>x!==ds);if(!S.days)S.days={};
+    if(off){S.vacation.push(ds);}
+    else{const rows=[...document.querySelectorAll('#dRows .dshift')].map(r=>({name:r.querySelector('.dn').value.trim()||'Shift',hours:num(r.querySelector('.dh').value),rate:num(r.querySelector('.dr').value)})).filter(x=>x.hours>0);
+      const reg=S.shifts.filter(s=>s.regular&&s.day===parse(ds).getDay()).map(x=>({name:x.name||'Shift',hours:num(x.hours),rate:num(x.rate)}));
+      if(JSON.stringify(rows)===JSON.stringify(reg))delete S.days[ds];else S.days[ds]={shifts:rows};}
+    closeSheet();save();renderAll();toast(off?'Marked off':'Day updated');},
+  dayReset(ds){if(S.days)delete S.days[ds];S.vacation=S.vacation.filter(x=>x!==ds);closeSheet();save();renderAll();toast('Back to regular schedule');},
+};
 
 /* ---------- edit sheets ---------- */
 const CAT_O=()=>S.categories.map(c=>[c,c]);
@@ -1018,7 +1075,6 @@ const App={
   del(coll,id){const o=S[coll].find(x=>x.id===id);const nm=o&&(o.name||o.biz)||'this item';ask('Delete '+nm+'?').then(ok=>{if(!ok)return;S[coll]=S[coll].filter(x=>x.id!==id);save();renderAll();});},
   addShift(wd){const reg=S.shifts.filter(s=>s.regular).slice(-1)[0];S.shifts.push({id:uid(),day:wd,name:'Shift',hours:8,rate:reg?reg.rate:'',regular:true});save();renderAll();},
   togReg(id){const s=S.shifts.find(x=>x.id===id);s.regular=!s.regular;if(s.regular)S.plan.shifts=S.plan.shifts.filter(x=>x!==id);save();renderAll();},
-  addVac(){const v=$('#vacDate').value;if(!v)return flag($('#vacDate'));if(!S.vacation.includes(v))S.vacation.push(v);$('#vacDate').value='';save();renderAll();},
   delVac(v){S.vacation=S.vacation.filter(x=>x!==v);save();renderAll();},
   addFixed(){App.editRec(null);},
   setRec(id,f,v){const r=S.recurring.find(x=>x.id===id);if(!r)return;const occ=S.txns.filter(x=>x.rid===id);
@@ -1058,7 +1114,7 @@ const App={
   resetAll(){ask('Erase ALL Budgeit data on this device? This can’t be undone — export a backup first if unsure.').then(ok=>{if(ok){S=fresh();save();fillCats();renderAll();toast('Erased');}});},
   loadSample(){S=sample();migrate();materialize();save();fillCats();renderAll();toast('Sample data loaded');}
 };
-Object.assign(App,UA,ED);window.App=App;
+Object.assign(App,UA,ED,CAL);window.App=App;
 
 /* ---------- wire up ---------- */
 $('#qDate').value=iso(today());
